@@ -1,0 +1,7 @@
+*.bak
+checkpoint.json
+hub/
+hub_key*
+known_hosts
+node/
+artigo-tabnews.md

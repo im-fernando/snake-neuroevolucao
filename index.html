@@ -1,0 +1,399 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Snake Neuroevolução</title>
+<style>
+:root{
+  --bg:#0e1013; --panel:#161920; --line:#262b35; --txt:#d9dee7; --mut:#7f8999;
+  --snake:#4fcf86; --head:#c9f7da; --food:#ff6150; --pos:#58b4ff; --neg:#ff8b55; --avg:#e6c158;
+}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--txt);font:13px/1.45 ui-monospace,SFMono-Regular,Menlo,Consolas,"Liberation Mono",monospace}
+header{padding:14px 20px;border-bottom:1px solid var(--line);display:flex;gap:18px;align-items:baseline;flex-wrap:wrap}
+h1{font-size:15px;margin:0;font-weight:700;letter-spacing:.02em}
+header span{color:var(--mut)}
+main{display:grid;grid-template-columns:minmax(0,520px) minmax(0,1fr);gap:16px;padding:16px 20px;max-width:1300px}
+@media (max-width:900px){main{grid-template-columns:minmax(0,1fr);padding:12px 16px}}
+.panel{background:var(--panel);border:1px solid var(--line);border-radius:6px;padding:12px;min-width:0}
+.panel h2{font-size:11px;text-transform:uppercase;letter-spacing:.08em;color:var(--mut);margin:0 0 10px;font-weight:600}
+canvas{display:block;max-width:100%;height:auto}
+.col{display:flex;flex-direction:column;gap:16px;min-width:0}
+.stats{display:grid;grid-template-columns:repeat(auto-fill,minmax(150px,1fr));gap:10px}
+.stat b{display:block;font-size:22px;font-weight:700;color:#fff}
+.stat small{color:var(--mut)}
+.controls{display:flex;flex-wrap:wrap;gap:10px 18px;align-items:center}
+button,select{background:#20252f;color:var(--txt);border:1px solid #333a47;border-radius:4px;padding:6px 10px;font:inherit;cursor:pointer}
+button:hover,select:hover{border-color:#4a5263}
+label{display:flex;gap:8px;align-items:center;color:var(--mut)}
+input[type=range]{accent-color:var(--snake)}
+.sep{width:100%;height:1px;background:var(--line)}
+#watchInfo{color:var(--mut);margin-top:8px;min-height:1.4em}
+#watchInfo b{color:var(--txt)}
+.legend{display:flex;gap:16px;color:var(--mut);margin-top:6px;flex-wrap:wrap}
+.legend i{display:inline-block;width:14px;height:3px;vertical-align:middle;margin-right:6px}
+.explain{color:var(--mut);max-width:1300px;padding:0 20px 24px}
+.explain p{margin:.4em 0}
+.explain b{color:var(--txt)}
+</style>
+</head>
+<body>
+<header>
+  <h1>SNAKE · NEUROEVOLUÇÃO</h1>
+  <span>redes neurais que aprendem por seleção natural, sem nenhuma regra escrita à mão</span>
+</header>
+
+<main>
+  <div class="col">
+    <div class="panel">
+      <canvas id="board" width="480" height="480"></canvas>
+      <div id="watchInfo">avaliando a primeira geração…</div>
+    </div>
+    <div class="panel">
+      <h2>Controles</h2>
+      <div class="controls">
+        <button id="btnPause">Pausar evolução</button>
+        <button id="btnSkip">Ver o mais recente</button>
+        <label>Assistir
+          <select id="watch">
+            <option value="last">melhor da última geração</option>
+            <option value="ever">campeão de todos os tempos</option>
+          </select>
+        </label>
+        <label>Velocidade <input id="speed" type="range" min="1" max="11" value="5"> <span id="speedLbl"></span></label>
+        <label><input id="turbo" type="checkbox"> turbo</label>
+        <div class="sep"></div>
+        <label>População
+          <select id="cfgPop"><option>100</option><option>300</option><option selected>500</option><option>1000</option><option>2000</option><option>5000</option><option>10000</option></select>
+        </label>
+        <label>Ocultas
+          <select id="cfgHidden"><option value="8">8</option><option value="16" selected>16</option><option value="16,16">16 + 16</option><option value="32">32</option></select>
+        </label>
+        <label>Mutação <input id="cfgMut" type="range" min="1" max="30" value="8"> <span id="mutLbl"></span></label>
+        <button id="btnReset">Reiniciar do zero</button>
+      </div>
+    </div>
+  </div>
+
+  <div class="col">
+    <div class="panel">
+      <div class="stats">
+        <div class="stat"><small>geração</small><b id="sGen">1</b><small id="sProg"></small></div>
+        <div class="stat"><small>melhor (última geração)</small><b id="sBest">...</b><small>maçãs</small></div>
+        <div class="stat"><small>média (última geração)</small><b id="sAvg">...</b><small>maçãs</small></div>
+        <div class="stat"><small>recorde</small><b id="sRec">...</b><small id="sRecGen"></small></div>
+      </div>
+    </div>
+    <div class="panel">
+      <h2>Evolução: maçãs por geração</h2>
+      <canvas id="chart" width="760" height="220"></canvas>
+      <div class="legend"><span><i style="background:var(--snake)"></i>melhor da geração</span><span><i style="background:var(--avg)"></i>média da população</span></div>
+    </div>
+    <div class="panel">
+      <h2>Cérebro da cobra assistida (ao vivo)</h2>
+      <canvas id="net" width="760" height="380"></canvas>
+      <div class="legend"><span><i style="background:var(--pos)"></i>peso positivo</span><span><i style="background:var(--neg)"></i>peso negativo</span><span>direções relativas à cabeça (↑ = para onde ela está indo)</span></div>
+    </div>
+  </div>
+</main>
+
+<div class="explain">
+  <p><b>Como funciona.</b> Cada cobra tem uma rede neural com pesos aleatórios. Todas jogam a mesma partida; quem come mais maçãs (e sobrevive mais) ganha mais <b>aptidão</b>. As melhores viram pais da próxima geração: os filhos misturam os pesos dos dois (<b>cruzamento</b>) e recebem pequenas alterações aleatórias (<b>mutação</b>). Repete. Ninguém ensina a cobra a jogar. O comportamento surge da seleção.</p>
+  <p><b>O que ela enxerga (17 entradas):</b> 5 raios (frente, esquerda, direita e as duas diagonais da frente) dizendo a que distância está o obstáculo e se há maçã naquela linha; a posição da maçã e da cauda em relação à cabeça; e quanto espaço livre ela ainda alcança se for para frente, para a esquerda ou para a direita. É isso que a impede de entrar num bolsão fechado pelo próprio corpo. <b>Saídas:</b> seguir, virar à esquerda, virar à direita. Se ficar muito tempo sem comer, morre de fome. Isso impede que ela "aprenda" a ficar girando em círculo.</p>
+  <p>Espere ver: nas primeiras gerações elas batem na parede; logo depois aprendem a ir até a maçã; em umas dezenas de gerações passam de 100 maçãs. O difícil vem quando o corpo fica grande e ela começa a se encurralar.</p>
+</div>
+
+<script src="sim.js"></script>
+<script>
+// ================= interface =================
+const $ = id => document.getElementById(id);
+const board = $('board'), bctx = board.getContext('2d');
+const chart = $('chart'), cctx = chart.getContext('2d');
+const net = $('net'), nctx = net.getContext('2d');
+const SPEEDS = [0, 2, 4, 8, 15, 30, 60, 120, 300, 1000, 3000, 20000];
+let REMOTE = null, CHAMP = null, SHOWCASE = false, paused = false, replay = null, acc = 0, chartDirty = true, lastStats = 0, VBUFS, VINP = new Float32Array(IN);
+
+function hiDPI(cv){
+  const r = window.devicePixelRatio || 1, w = cv.width, h = cv.height;
+  cv.width = w * r; cv.height = h * r; cv.style.width = w + 'px';
+  const ctx = cv.getContext('2d'); ctx.setTransform(r, 0, 0, r, 0, 0); cv._w = w; cv._h = h;
+}
+[board, chart, net].forEach(hiDPI);
+
+function startReplay(){
+  const v = $('watch').value;
+  const src = REMOTE ? remoteSource() : (v === 'champ' && CHAMP && String(CHAMP.hidden) === String(CFG.hidden)) ? CHAMP : (v === 'ever' ? EV.ever : EV.last);
+  if (!src) { replay = null; return; }
+  replay = { game: new Game(src.seed, src.hk || 3), genome: src.genome, info: src, deadAt: 0 };
+  VBUFS = makeBufs(); acc = 0;
+  replay.game.sense(VINP); forward(replay.genome, VINP, VBUFS);
+  // ?pular=N avança o primeiro replay N passos (bom pra ver o fim de jogo direto)
+  const skip = +new URLSearchParams(location.search).get('pular') || 0;
+  if (skip && !startReplay.skipped) {
+    startReplay.skipped = true;
+    for (let k = 0; k < skip && replay.game.alive; k++) { replay.game.sense(VINP); replay.game.step(forward(replay.genome, VINP, VBUFS)); }
+    if (replay.game.alive) { replay.game.sense(VINP); forward(replay.genome, VINP, VBUFS); }
+  }
+}
+function replayTick(dt){
+  if (!replay) { startReplay(); return; }
+  const g = replay.game;
+  if (!g.alive) { if (performance.now() - replay.deadAt > 1500) startReplay(); return; }
+  acc += dt * SPEEDS[+$('speed').value] / 1000;
+  let n = Math.min(Math.floor(acc), 5000); acc -= Math.floor(acc);
+  while (n-- > 0 && g.alive) {
+    g.sense(VINP); g.step(forward(replay.genome, VINP, VBUFS));
+    if (!g.alive) replay.deadAt = performance.now();
+  }
+}
+
+function drawBoard(){
+  const W = board._w, cs = W / N;
+  bctx.fillStyle = '#0b0d10'; bctx.fillRect(0, 0, W, W);
+  bctx.strokeStyle = '#171b22'; bctx.lineWidth = 1;
+  for (let i = 1; i < N; i++) { bctx.beginPath(); bctx.moveTo(i*cs+.5,0); bctx.lineTo(i*cs+.5,W); bctx.moveTo(0,i*cs+.5); bctx.lineTo(W,i*cs+.5); bctx.stroke(); }
+  if (!replay) return;
+  const g = replay.game;
+  if (g.food >= 0) {
+    bctx.fillStyle = '#ff6150';
+    bctx.beginPath(); bctx.arc((g.food % N + .5) * cs, (((g.food / N) | 0) + .5) * cs, cs * .36, 0, 7); bctx.fill();
+  }
+  for (let i = g.len - 1; i >= 0; i--) {
+    const c = g.cell(i), x = c % N, y = (c / N) | 0, t = i / Math.max(1, g.len - 1);
+    bctx.fillStyle = i === 0 ? '#c9f7da' : `hsl(146 ${58 - t*25}% ${55 - t*28}%)`;
+    bctx.fillRect(x * cs + 1.5, y * cs + 1.5, cs - 3, cs - 3);
+  }
+  // olhos
+  const h = g.head(), hx = (h % N + .5) * cs, hy = (((h / N) | 0) + .5) * cs, d = g.dir;
+  const fx = DX[d], fy = DY[d], px = -fy, py = fx;
+  bctx.fillStyle = '#0b0d10';
+  for (const s of [-1, 1]) { bctx.beginPath(); bctx.arc(hx + fx*cs*.18 + px*s*cs*.2, hy + fy*cs*.18 + py*s*cs*.2, cs*.08, 0, 7); bctx.fill(); }
+  if (!g.alive) {
+    bctx.fillStyle = 'rgba(11,13,16,.72)'; bctx.fillRect(0, W/2 - 34, W, 68);
+    bctx.fillStyle = '#fff'; bctx.font = '700 18px ui-monospace,monospace'; bctx.textAlign = 'center';
+    bctx.fillText(`${g.cause} · ${g.score} maçãs`, W/2, W/2 + 6); bctx.textAlign = 'left';
+  }
+}
+
+function drawChart(){
+  if (REMOTE) return drawChartRemote();
+  const W = chart._w, H = chart._h, padL = 36, padB = 22, padT = 10, padR = 10;
+  cctx.fillStyle = '#161920'; cctx.fillRect(0, 0, W, H);
+  const hist = EV.history;
+  const maxY = Math.max(5, ...hist.map(h => h.best));
+  const gw = W - padL - padR, gh = H - padT - padB;
+  cctx.strokeStyle = '#262b35'; cctx.fillStyle = '#7f8999'; cctx.font = '11px ui-monospace,monospace';
+  const stepY = maxY > 50 ? 20 : maxY > 20 ? 10 : 5;
+  for (let v = 0; v <= maxY; v += stepY) {
+    const y = padT + gh - v / maxY * gh;
+    cctx.beginPath(); cctx.moveTo(padL, y + .5); cctx.lineTo(W - padR, y + .5); cctx.stroke();
+    cctx.fillText(v, 4, y + 4);
+  }
+  if (hist.length < 1) {
+    cctx.fillText(SHOWCASE ? 'Esta é a campeã, treinada por milhares de gerações em 4 servidores.' : 'aguardando a primeira geração…', padL + 10, padT + gh / 2);
+    if (SHOWCASE) cctx.fillText('Clique em "Treinar do zero aqui" para ver uma população aprendendo desde a geração 1.', padL + 10, padT + gh / 2 + 18);
+    return;
+  }
+  const n = Math.max(2, hist.length), X = i => padL + (i / (n - 1)) * gw;
+  cctx.fillText('geração ' + hist[hist.length - 1].gen, W - padR - 90, H - 5);
+  cctx.fillText('1', padL, H - 5);
+  for (const [key, col] of [['avg', '#e6c158'], ['best', '#4fcf86']]) {
+    cctx.strokeStyle = col; cctx.lineWidth = 2; cctx.beginPath();
+    hist.forEach((h, i) => { const y = padT + gh - h[key] / maxY * gh; i ? cctx.lineTo(X(i), y) : cctx.moveTo(X(i), y); });
+    cctx.stroke();
+  }
+  cctx.lineWidth = 1;
+}
+
+const IN_LABELS = ['obstáculo ↑','obstáculo ←','obstáculo →','obstáculo ↖','obstáculo ↗','maçã no raio ↑','maçã no raio ←','maçã no raio →','maçã no raio ↖','maçã no raio ↗','maçã: frente/trás','maçã: esq/dir','cauda: frente/trás','cauda: esq/dir','espaço livre ↑','espaço livre ←','espaço livre →'];
+const OUT_LABELS = ['seguir reto', 'virar à esquerda', 'virar à direita'];
+function actColor(v){
+  const a = Math.max(-1, Math.min(1, v));
+  return a >= 0 ? `rgba(88,180,255,${.15 + a*.85})` : `rgba(255,139,85,${.15 - a*.85})`;
+}
+function drawNet(){
+  const W = net._w, H = net._h;
+  nctx.fillStyle = '#161920'; nctx.fillRect(0, 0, W, H);
+  if (!replay || !VBUFS) return;
+  const g = replay.genome, L = SIZES.length, left = 150, right = W - 140;
+  const pos = SIZES.map((n, l) => {
+    const x = left + (right - left) * l / (L - 1), sp = Math.min(24, (H - 20) / n);
+    return Array.from({ length: n }, (_, i) => [x, H / 2 + (i - (n - 1) / 2) * sp]);
+  });
+  let off = 0;
+  for (let l = 0; l < L - 1; l++) {
+    const ni = SIZES[l], no = SIZES[l + 1];
+    for (let j = 0; j < no; j++) {
+      for (let i = 0; i < ni; i++) {
+        const w = g[off + i], aw = Math.min(1, Math.abs(w) / 2);
+        if (aw < .12) continue;
+        const flow = Math.min(1, Math.abs(VBUFS[l][i])) * .7 + .08;
+        nctx.strokeStyle = w > 0 ? `rgba(88,180,255,${aw*flow})` : `rgba(255,139,85,${aw*flow})`;
+        nctx.lineWidth = aw * 2.2;
+        nctx.beginPath(); nctx.moveTo(pos[l][i][0], pos[l][i][1]); nctx.lineTo(pos[l+1][j][0], pos[l+1][j][1]); nctx.stroke();
+      }
+      off += ni + 1;
+    }
+  }
+  const out = VBUFS[L - 1]; let chosen = 0; for (let k = 1; k < OUT; k++) if (out[k] > out[chosen]) chosen = k;
+  nctx.font = '11px ui-monospace,monospace';
+  for (let l = 0; l < L; l++) for (let i = 0; i < SIZES[l]; i++) {
+    const [x, y] = pos[l][i], v = VBUFS[l][i];
+    nctx.fillStyle = '#0e1013'; nctx.beginPath(); nctx.arc(x, y, 7, 0, 7); nctx.fill();
+    nctx.fillStyle = l === L - 1 ? (i === chosen ? '#4fcf86' : '#2a303b') : actColor(v);
+    nctx.beginPath(); nctx.arc(x, y, 6, 0, 7); nctx.fill();
+    if (l === 0) { nctx.fillStyle = '#7f8999'; nctx.textAlign = 'right'; nctx.fillText(IN_LABELS[i], x - 12, y + 4); }
+    if (l === L - 1) { nctx.fillStyle = i === chosen ? '#fff' : '#7f8999'; nctx.textAlign = 'left'; nctx.fillText(OUT_LABELS[i], x + 12, y + 4); }
+  }
+  nctx.textAlign = 'left';
+}
+
+function updateStats(){
+  if (REMOTE) return updateStatsRemote();
+  if (SHOWCASE) {
+    $('sGen').textContent = CHAMP.gen; $('sProg').textContent = 'a geração em que ela zerou';
+    $('sBest').textContent = CHAMP.score; $('sRec').textContent = CHAMP.score; $('sRecGen').textContent = 'maçãs · zerou o jogo';
+    if (replay) $('watchInfo').innerHTML = `assistindo: <b>a cobra que zerou, geração ${CHAMP.gen}</b> · maçãs agora <b>${replay.game.score}</b> / ${CHAMP.score} · passos ${replay.game.steps}`;
+    return;
+  }
+  $('sGen').textContent = EV.gen;
+  $('sProg').textContent = `avaliando ${EV.idx}/${CFG.pop}${paused ? ' · pausado' : ''}`;
+  const h = EV.history[EV.history.length - 1];
+  if (h) { $('sBest').textContent = h.best; $('sAvg').textContent = h.avg.toFixed(2); }
+  if (EV.ever) { $('sRec').textContent = EV.ever.score; $('sRecGen').textContent = 'maçãs · geração ' + EV.ever.gen; }
+  if (replay) {
+    const g = replay.game, i = replay.info;
+    $('watchInfo').innerHTML = `assistindo: <b>${{ champ: 'a cobra que zerou, geração', ever: 'campeão da geração' }[$('watch').value] || 'melhor da geração'} ${i.gen}</b> · maçãs agora <b>${g.score}</b> / ${i.score} · passos ${g.steps}`;
+  }
+}
+
+let prevT = performance.now(), histLen = 0;
+function frame(t){
+  const dt = Math.min(100, t - prevT); prevT = t;
+  if (!paused && !REMOTE) evolveSlice($('turbo').checked ? 45 : 12);
+  replayTick(dt);
+  if (EV.history.length !== histLen) { histLen = EV.history.length; chartDirty = true; }
+  if (chartDirty) { drawChart(); chartDirty = false; }
+  drawBoard(); drawNet();
+  if (t - lastStats > 120) { updateStats(); lastStats = t; }
+  requestAnimationFrame(frame);
+}
+
+function readCfg(){
+  CFG.pop = +$('cfgPop').value;
+  CFG.hidden = $('cfgHidden').value.split(',').map(Number);
+  CFG.mutRate = +$('cfgMut').value / 100;
+}
+function syncLabels(){
+  const s = SPEEDS[+$('speed').value];
+  $('speedLbl').textContent = s === 0 ? 'parado' : s >= 20000 ? 'máx' : s + ' passos/s';
+  $('mutLbl').textContent = $('cfgMut').value + '%';
+}
+$('speed').oninput = syncLabels;
+$('cfgMut').oninput = () => { syncLabels(); CFG.mutRate = +$('cfgMut').value / 100; };
+$('btnPause').onclick = () => {
+  if (SHOWCASE) {
+    SHOWCASE = false; paused = false; $('watch').value = 'last'; replay = null; $('speed').value = 5; syncLabels();
+    $('sGen').textContent = '1'; $('sBest').textContent = $('sAvg').textContent = $('sRec').textContent = '...'; $('sRecGen').textContent = '';
+    $('watchInfo').textContent = 'avaliando a primeira geração…';
+    $('btnPause').textContent = 'Pausar evolução'; chartDirty = true; return;
+  }
+  paused = !paused; $('btnPause').textContent = paused ? 'Continuar evolução' : 'Pausar evolução'; };
+$('btnSkip').onclick = startReplay;
+$('watch').onchange = startReplay;
+$('btnReset').onclick = () => { readCfg(); initEvolution(); replay = null; $('sBest').textContent = $('sAvg').textContent = $('sRec').textContent = '...'; $('sRecGen').textContent = ''; $('watchInfo').textContent = 'avaliando a primeira geração…'; chartDirty = true; };
+
+{ const v = new URLSearchParams(location.search).get('vel'); if (v !== null) $('speed').value = v; }
+readCfg(); syncLabels(); initEvolution();
+tryRemote().then(() => { if (!REMOTE) return loadChampion(); }).finally(() => requestAnimationFrame(frame));
+
+// ================= modo VPS: a página só observa as ilhas que treinam nos servidores =================
+const ISLE_COLORS = ['#4fcf86', '#58b4ff', '#e6c158', '#ff8b55', '#c58cff', '#ff6fa8'];
+function b64f32(s){ const b = atob(s), u = new Uint8Array(b.length); for (let i = 0; i < b.length; i++) u[i] = b.charCodeAt(i); return new Float32Array(u.buffer); }
+async function loadChampion(){
+  try {
+    const r = await fetch('campeao.json', { cache: 'no-store' }); if (!r.ok) return;
+    const c = await r.json(); if (c.in !== IN) return;
+    CHAMP = { ...c, genome: b64f32(c.genome) };
+    const o = document.createElement('option'); o.value = 'champ';
+    o.textContent = `a cobra que zerou (${c.score} maçãs, geração ${c.gen})`;
+    $('watch').prepend(o); $('watch').value = 'champ'; replay = null;
+    // abre como vitrine: só a campeã jogando; o treino do zero fica num botão
+    SHOWCASE = true; paused = true;
+    if (new URLSearchParams(location.search).get('vel') === null) $('speed').value = 8;
+    syncLabels(); $('btnPause').textContent = 'Treinar do zero aqui'; chartDirty = true;
+  } catch {}
+}
+async function tryRemote(){
+  if (!location.protocol.startsWith('http')) return;
+  try { const r = await fetch('state.json', { cache: 'no-store' }); if (!r.ok) return; applyRemote(await r.json()); } catch { return; }
+  if (!REMOTE) return;
+  for (const el of [$('btnPause'), $('btnReset'), $('turbo').closest('label'), $('cfgPop').closest('label'), $('cfgHidden').closest('label'), $('cfgMut').closest('label'), document.querySelector('.sep')]) el.style.display = 'none';
+  document.querySelector('header span').textContent = 'treinando nas VPS em modelo de ilhas: cada servidor evolui sua população e elas trocam as melhores cobras';
+  setInterval(async () => { try { const r = await fetch('state.json', { cache: 'no-store' }); if (r.ok) applyRemote(await r.json()); } catch {} }, 5000);
+}
+function applyRemote(st){
+  const isl = (st.islands || []).filter(i => i.last).sort((a, b) => a.island.localeCompare(b.island));
+  if (!isl.length) return;
+  if (!REMOTE || String(SIZES.slice(1, -1)) !== String(isl[0].hidden)) setArch(isl[0].hidden);
+  let ever = null;
+  for (const i of isl) {
+    i.last = { ...i.last, genome: b64f32(i.last.genome), island: i.island };
+    i.ever = { ...i.ever, genome: b64f32(i.ever.genome), island: i.island };
+    if (!ever || i.ever.score > ever.score) ever = i.ever;
+  }
+  const names = isl.map(i => i.island).join();
+  const first = !REMOTE;
+  REMOTE = { islands: isl, ever, at: Date.now() };
+  if (first || $('watch').dataset.names !== names) {
+    const cur = $('watch').value;
+    $('watch').innerHTML = '<option value="ever">campeão geral (todas as ilhas)</option>' + isl.map(i => `<option value="isle:${i.island}">melhor recente · ${i.island}</option>`).join('');
+    $('watch').dataset.names = names;
+    if ([...$('watch').options].some(o => o.value === cur)) $('watch').value = cur;
+    $('chart').nextElementSibling.innerHTML = isl.map((i, k) => `<span><i style="background:${ISLE_COLORS[k % 6]}"></i>${i.island}${i.exp ? ' · experimento' : ''}</span>`).join('') + '<span>linha fina = média da ilha</span>';
+  }
+  if (first) replay = null;
+  chartDirty = true;
+}
+function remoteSource(){
+  const v = $('watch').value;
+  if (v.startsWith('isle:')) { const i = REMOTE.islands.find(i => 'isle:' + i.island === v); if (i) return i.last; }
+  return REMOTE.ever;
+}
+function drawChartRemote(){
+  const W = chart._w, H = chart._h, padL = 36, padB = 22, padT = 10, padR = 10, gw = W - padL - padR, gh = H - padT - padB;
+  cctx.fillStyle = '#161920'; cctx.fillRect(0, 0, W, H);
+  const isl = REMOTE.islands;
+  const maxY = Math.max(5, ...isl.flatMap(i => i.history.map(h => h.best)));
+  const maxG = Math.max(2, ...isl.map(i => i.history.length ? i.history[i.history.length - 1].gen : 1));
+  cctx.strokeStyle = '#262b35'; cctx.fillStyle = '#7f8999'; cctx.font = '11px ui-monospace,monospace';
+  const stepY = maxY > 200 ? 50 : maxY > 50 ? 20 : maxY > 20 ? 10 : 5;
+  for (let v = 0; v <= maxY; v += stepY) { const y = padT + gh - v / maxY * gh; cctx.beginPath(); cctx.moveTo(padL, y + .5); cctx.lineTo(W - padR, y + .5); cctx.stroke(); cctx.fillText(v, 4, y + 4); }
+  cctx.fillText('1', padL, H - 5); cctx.textAlign = 'right'; cctx.fillText('geração ' + maxG, W - padR, H - 5); cctx.textAlign = 'left';
+  const X = g => padL + (g - 1) / (maxG - 1) * gw, Y = v => padT + gh - v / maxY * gh;
+  isl.forEach((i, k) => {
+    for (const [key, lw, al] of [['avg', 1, .55], ['best', 2, 1]]) {
+      cctx.strokeStyle = ISLE_COLORS[k % 6]; cctx.globalAlpha = al; cctx.lineWidth = lw; cctx.beginPath();
+      i.history.forEach((h, n) => n ? cctx.lineTo(X(h.gen), Y(h[key])) : cctx.moveTo(X(h.gen), Y(h[key])));
+      cctx.stroke();
+    }
+  });
+  cctx.globalAlpha = 1; cctx.lineWidth = 1;
+}
+function updateStatsRemote(){
+  const isl = REMOTE.islands, lastH = i => i.history[i.history.length - 1] || { best: 0, avg: 0 };
+  $('sGen').textContent = Math.max(...isl.map(i => i.gen));
+  $('sProg').textContent = isl.map(i => `${i.island} ${i.gen} (${i.gensPerMin}/min)`).join(' · ');
+  $('sBest').textContent = Math.max(...isl.map(i => lastH(i).best));
+  $('sAvg').textContent = (isl.reduce((a, i) => a + lastH(i).avg, 0) / isl.length).toFixed(2);
+  $('sRec').textContent = REMOTE.ever.score;
+  $('sRecGen').textContent = `maçãs · ${REMOTE.ever.island}, geração ${REMOTE.ever.gen}`;
+  if (replay) {
+    const g = replay.game, i = replay.info, age = Math.round((Date.now() - Math.max(...isl.map(i => i.updatedAt))) / 1000);
+    $('watchInfo').innerHTML = `assistindo: <b>${i.island}, geração ${i.gen}</b> · maçãs agora <b>${g.score}</b> / ${i.score} · passos ${g.steps} · dados de ${age}s atrás`;
+  }
+}
+</script>
+</body>
+</html>
